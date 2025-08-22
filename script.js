@@ -47,9 +47,6 @@ class SnakeGame {
         this.speed = CONFIG.INITIAL_SPEED;
         this.gridCount = CONFIG.CANVAS_SIZE / CONFIG.GRID_SIZE;
         
-        // 初始化传送门
-        this.generatePortals();
-        
         // 初始化蛇 - 放置在更中心的位置，更远离边界和传送门
         const centerX = Math.floor(this.gridCount / 4); // 在1/4位置开始
         const centerY = Math.floor(this.gridCount / 2);
@@ -58,6 +55,9 @@ class SnakeGame {
         ];
         this.direction = Direction.RIGHT;
         this.nextDirection = Direction.RIGHT;
+        
+        // 初始化传送门（先初始化蛇，再初始化传送门）
+        this.generatePortals();
         
         // 初始化食物
         this.generateFood();
@@ -150,7 +150,13 @@ class SnakeGame {
         head.x += this.direction.x;
         head.y += this.direction.y;
         
-        // 检查传送门碰撞或边界传送
+        // 检查边界碰撞，游戏结束
+        if (this.checkWallCollision(head)) {
+            this.gameOver();
+            return;
+        }
+        
+        // 检查传送门碰撞
         const teleportResult = this.checkPortalTeleport(head);
         if (teleportResult) {
             head.x = teleportResult.x;
@@ -176,6 +182,19 @@ class SnakeGame {
             // 移除尾部
             this.snake.pop();
         }
+        
+        // 更新随机传送门
+        this.updateRandomPortals();
+    }
+    
+    updateRandomPortals() {
+        this.randomPortalTimer++;
+        
+        // 每隔一定时间重新生成随机传送门
+        if (this.randomPortalTimer >= this.randomPortalInterval) {
+            this.generateRandomPortals();
+            this.portals = [...this.fixedPortals, ...this.randomPortals];
+        }
     }
     
     generateFood() {
@@ -191,54 +210,107 @@ class SnakeGame {
     }
     
     generatePortals() {
-        // 生成两个传送门，放置在对角的边缘区域
-        this.portals = [
+        // 先生成固定传送门，位置不变
+        this.fixedPortals = [
             {
                 id: 'A',
                 x: 2,
                 y: 2,
-                color: '#3498db'  // 蓝色传送门A
+                color: '#3498db',  // 蓝色传送门A
+                type: 'fixed'
             },
             {
                 id: 'B', 
                 x: this.gridCount - 3,
                 y: this.gridCount - 3,
-                color: '#9b59b6'  // 紫色传送门B
+                color: '#9b59b6',  // 紫色传送门B
+                type: 'fixed'
             }
         ];
+        
+        // 初始化随机传送门数组
+        this.randomPortals = [];
+        
+        // 生成随机传送门
+        this.generateRandomPortals();
+        
+        // 合并所有传送门
+        this.portals = [...this.fixedPortals, ...this.randomPortals];
+    }
+    
+    generateRandomPortals() {
+        // 生成两个随机位置的传送门
+        this.randomPortals = [];
+        
+        for (let i = 0; i < 2; i++) {
+            let randomPortal;
+            let attempts = 0;
+            
+            do {
+                randomPortal = {
+                    id: i === 0 ? 'C' : 'D',
+                    x: Math.floor(Math.random() * this.gridCount),
+                    y: Math.floor(Math.random() * this.gridCount),
+                    color: i === 0 ? '#e67e22' : '#1abc9c',  // 橙色C和青色D
+                    type: 'random'
+                };
+                attempts++;
+            } while (
+                attempts < 100 && (
+                    // 避免与固定传送门重叠
+                    this.fixedPortals.some(fp => fp.x === randomPortal.x && fp.y === randomPortal.y) ||
+                    // 避免与蛇身重叠
+                    this.snake.some(segment => segment.x === randomPortal.x && segment.y === randomPortal.y) ||
+                    // 避免与已生成的随机传送门重叠
+                    this.randomPortals.some(rp => rp.x === randomPortal.x && rp.y === randomPortal.y) ||
+                    // 避免与食物重叠
+                    (this.food && this.food.x === randomPortal.x && this.food.y === randomPortal.y)
+                )
+            );
+            
+            this.randomPortals.push(randomPortal);
+        }
+        
+        // 设置随机传送门重新生成计时器
+        this.randomPortalTimer = 0;
+        this.randomPortalInterval = 150; // 每150个游戏循环重新生成随机传送门
     }
     
     checkPortalTeleport(head) {
         // 检查是否撞到传送门
         for (let portal of this.portals) {
             if (head.x === portal.x && head.y === portal.y) {
-                // 找到对应的传送门
-                const otherPortal = this.portals.find(p => p.id !== portal.id);
+                // 根据传送门类型找到对应的传送门
+                let otherPortal;
+                
+                if (portal.type === 'fixed') {
+                    // 固定传送门：A和B互相传送
+                    otherPortal = this.fixedPortals.find(p => p.id !== portal.id);
+                } else {
+                    // 随机传送门：C和D互相传送
+                    otherPortal = this.randomPortals.find(p => p.id !== portal.id);
+                }
+                
                 if (otherPortal) {
                     // 传送到另一个传送门，根据移动方向在传送门旁边出现
+                    const newX = otherPortal.x + this.direction.x * CONFIG.PORTAL_TELEPORT_OFFSET;
+                    const newY = otherPortal.y + this.direction.y * CONFIG.PORTAL_TELEPORT_OFFSET;
+                    
+                    // 确保传送后的位置在边界内
                     return {
-                        x: otherPortal.x + this.direction.x * CONFIG.PORTAL_TELEPORT_OFFSET,
-                        y: otherPortal.y + this.direction.y * CONFIG.PORTAL_TELEPORT_OFFSET
+                        x: Math.max(0, Math.min(this.gridCount - 1, newX)),
+                        y: Math.max(0, Math.min(this.gridCount - 1, newY))
                     };
                 }
             }
         }
         
-        // 检查边界碰撞，从对面传送回来
-        if (head.x < 0) {
-            return { x: this.gridCount - 1, y: head.y };
-        }
-        if (head.x >= this.gridCount) {
-            return { x: 0, y: head.y };
-        }
-        if (head.y < 0) {
-            return { x: head.x, y: this.gridCount - 1 };
-        }
-        if (head.y >= this.gridCount) {
-            return { x: head.x, y: 0 };
-        }
-        
         return null;  // 没有传送
+    }
+    
+    checkWallCollision(head) {
+        // 检查边界碰撞，游戏结束
+        return head.x < 0 || head.x >= this.gridCount || head.y < 0 || head.y >= this.gridCount;
     }
     
     draw() {
@@ -261,6 +333,13 @@ class SnakeGame {
                 2 * Math.PI
             );
             this.ctx.fill();
+            
+            // 为随机传送门添加闪烁效果
+            if (portal.type === 'random') {
+                this.ctx.strokeStyle = portal.color;
+                this.ctx.lineWidth = 2;
+                this.ctx.stroke();
+            }
             
             // 绘制传送门标识
             this.ctx.fillStyle = 'white';
