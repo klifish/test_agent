@@ -59,8 +59,14 @@ class SnakeGame {
         // 初始化传送门（先初始化蛇，再初始化传送门）
         this.generatePortals();
         
+        // 初始化随机传送门重生系统
+        this.initRandomPortalSystem();
+        
         // 初始化食物
         this.generateFood();
+        
+        // 初始化闪烁动画计时器
+        this.blinkTimer = 0;
         
         this.updateDisplay();
         this.draw();
@@ -183,18 +189,53 @@ class SnakeGame {
             this.snake.pop();
         }
         
-        // 更新随机传送门
-        this.updateRandomPortals();
+        // 更新随机传送门系统
+        this.updateRandomPortalSystem();
+        
+        // 更新闪烁动画计时器
+        this.blinkTimer++;
     }
     
-    updateRandomPortals() {
+    initRandomPortalSystem() {
+        // 初始化随机传送门重生系统
+        this.nextRandomPortalSpawnTime = this.getRandomSpawnTime();
+        this.randomPortalTimer = 0;
+        this.randomPortalsActive = false;
+        
+        // 立即生成第一对随机传送门
+        this.spawnRandomPortals();
+    }
+    
+    getRandomSpawnTime() {
+        // 返回随机的重生时间（50-200个游戏循环）
+        return Math.floor(Math.random() * 151) + 50;
+    }
+    
+    updateRandomPortalSystem() {
         this.randomPortalTimer++;
         
-        // 每隔一定时间重新生成随机传送门
-        if (this.randomPortalTimer >= this.randomPortalInterval) {
-            this.generateRandomPortals();
-            this.portals = [...this.fixedPortals, ...this.randomPortals];
+        // 检查是否到了生成随机传送门的时间
+        if (!this.randomPortalsActive && this.randomPortalTimer >= this.nextRandomPortalSpawnTime) {
+            this.spawnRandomPortals();
         }
+    }
+    
+    spawnRandomPortals() {
+        this.generateRandomPortals();
+        this.portals = [...this.fixedPortals, ...this.randomPortals];
+        this.randomPortalsActive = true;
+        console.log('Random portals spawned at time:', this.randomPortalTimer);
+    }
+    
+    removeRandomPortals() {
+        this.randomPortals = [];
+        this.portals = [...this.fixedPortals];
+        this.randomPortalsActive = false;
+        
+        // 设置下次重生时间
+        this.randomPortalTimer = 0;
+        this.nextRandomPortalSpawnTime = this.getRandomSpawnTime();
+        console.log('Random portals removed, next spawn in:', this.nextRandomPortalSpawnTime, 'cycles');
     }
     
     generateFood() {
@@ -228,14 +269,11 @@ class SnakeGame {
             }
         ];
         
-        // 初始化随机传送门数组
+        // 初始化随机传送门数组（但不立即生成）
         this.randomPortals = [];
         
-        // 生成随机传送门
-        this.generateRandomPortals();
-        
-        // 合并所有传送门
-        this.portals = [...this.fixedPortals, ...this.randomPortals];
+        // 开始时只有固定传送门
+        this.portals = [...this.fixedPortals];
     }
     
     generateRandomPortals() {
@@ -270,10 +308,6 @@ class SnakeGame {
             
             this.randomPortals.push(randomPortal);
         }
-        
-        // 设置随机传送门重新生成计时器
-        this.randomPortalTimer = 0;
-        this.randomPortalInterval = 150; // 每150个游戏循环重新生成随机传送门
     }
     
     checkPortalTeleport(head) {
@@ -295,6 +329,11 @@ class SnakeGame {
                     // 传送到另一个传送门，根据移动方向在传送门旁边出现
                     const newX = otherPortal.x + this.direction.x * CONFIG.PORTAL_TELEPORT_OFFSET;
                     const newY = otherPortal.y + this.direction.y * CONFIG.PORTAL_TELEPORT_OFFSET;
+                    
+                    // 如果使用的是随机传送门，传送后立即移除随机传送门
+                    if (portal.type === 'random') {
+                        this.removeRandomPortals();
+                    }
                     
                     // 确保传送后的位置在边界内
                     return {
@@ -323,6 +362,14 @@ class SnakeGame {
         
         // 绘制传送门
         this.portals.forEach(portal => {
+            // 为随机传送门添加闪烁效果
+            let alpha = 1;
+            if (portal.type === 'random') {
+                // 使用正弦波创建闪烁效果，周期大约20帧
+                alpha = 0.3 + 0.7 * (Math.sin(this.blinkTimer / 10) + 1) / 2;
+            }
+            
+            this.ctx.globalAlpha = alpha;
             this.ctx.fillStyle = portal.color;
             this.ctx.beginPath();
             this.ctx.arc(
@@ -334,11 +381,13 @@ class SnakeGame {
             );
             this.ctx.fill();
             
-            // 为随机传送门添加闪烁效果
+            // 为随机传送门添加闪烁边框效果
             if (portal.type === 'random') {
                 this.ctx.strokeStyle = portal.color;
                 this.ctx.lineWidth = 2;
+                this.ctx.setLineDash([4, 4]); // 虚线效果
                 this.ctx.stroke();
+                this.ctx.setLineDash([]); // 重置线条样式
             }
             
             // 绘制传送门标识
@@ -350,6 +399,9 @@ class SnakeGame {
                 portal.x * CONFIG.GRID_SIZE + CONFIG.GRID_SIZE / 2,
                 portal.y * CONFIG.GRID_SIZE + CONFIG.GRID_SIZE / 2 + 4
             );
+            
+            // 重置透明度
+            this.ctx.globalAlpha = 1;
         });
         
         // 绘制食物
