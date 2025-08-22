@@ -20,7 +20,8 @@ const CONFIG = {
     CANVAS_SIZE: 400,
     INITIAL_SPEED: 300,  // 增加初始速度延迟，让游戏更慢一些
     SPEED_INCREASE: 5,
-    FOOD_SCORE: 10
+    FOOD_SCORE: 10,
+    PORTAL_TELEPORT_OFFSET: 2  // 传送后的位置偏移，避免立即再次传送
 };
 
 class SnakeGame {
@@ -46,7 +47,10 @@ class SnakeGame {
         this.speed = CONFIG.INITIAL_SPEED;
         this.gridCount = CONFIG.CANVAS_SIZE / CONFIG.GRID_SIZE;
         
-        // 初始化蛇 - 放置在更中心的位置，更远离边界
+        // 初始化传送门
+        this.generatePortals();
+        
+        // 初始化蛇 - 放置在更中心的位置，更远离边界和传送门
         const centerX = Math.floor(this.gridCount / 4); // 在1/4位置开始
         const centerY = Math.floor(this.gridCount / 2);
         this.snake = [
@@ -146,11 +150,11 @@ class SnakeGame {
         head.x += this.direction.x;
         head.y += this.direction.y;
         
-        // 检查墙壁碰撞
-        if (head.x < 0 || head.x >= this.gridCount || 
-            head.y < 0 || head.y >= this.gridCount) {
-            this.gameOver();
-            return;
+        // 检查传送门碰撞或边界传送
+        const teleportResult = this.checkPortalTeleport(head);
+        if (teleportResult) {
+            head.x = teleportResult.x;
+            head.y = teleportResult.y;
         }
         
         // 检查自身碰撞
@@ -181,7 +185,60 @@ class SnakeGame {
                 y: Math.floor(Math.random() * this.gridCount)
             };
         } while (this.snake.some(segment => 
-            segment.x === this.food.x && segment.y === this.food.y));
+            segment.x === this.food.x && segment.y === this.food.y) ||
+            this.portals.some(portal => 
+                portal.x === this.food.x && portal.y === this.food.y));
+    }
+    
+    generatePortals() {
+        // 生成两个传送门，放置在对角的边缘区域
+        this.portals = [
+            {
+                id: 'A',
+                x: 2,
+                y: 2,
+                color: '#3498db'  // 蓝色传送门A
+            },
+            {
+                id: 'B', 
+                x: this.gridCount - 3,
+                y: this.gridCount - 3,
+                color: '#9b59b6'  // 紫色传送门B
+            }
+        ];
+    }
+    
+    checkPortalTeleport(head) {
+        // 检查是否撞到传送门
+        for (let portal of this.portals) {
+            if (head.x === portal.x && head.y === portal.y) {
+                // 找到对应的传送门
+                const otherPortal = this.portals.find(p => p.id !== portal.id);
+                if (otherPortal) {
+                    // 传送到另一个传送门，根据移动方向在传送门旁边出现
+                    return {
+                        x: otherPortal.x + this.direction.x * CONFIG.PORTAL_TELEPORT_OFFSET,
+                        y: otherPortal.y + this.direction.y * CONFIG.PORTAL_TELEPORT_OFFSET
+                    };
+                }
+            }
+        }
+        
+        // 检查边界碰撞，从对面传送回来
+        if (head.x < 0) {
+            return { x: this.gridCount - 1, y: head.y };
+        }
+        if (head.x >= this.gridCount) {
+            return { x: 0, y: head.y };
+        }
+        if (head.y < 0) {
+            return { x: head.x, y: this.gridCount - 1 };
+        }
+        if (head.y >= this.gridCount) {
+            return { x: head.x, y: 0 };
+        }
+        
+        return null;  // 没有传送
     }
     
     draw() {
@@ -191,6 +248,30 @@ class SnakeGame {
         
         // 绘制网格
         this.drawGrid();
+        
+        // 绘制传送门
+        this.portals.forEach(portal => {
+            this.ctx.fillStyle = portal.color;
+            this.ctx.beginPath();
+            this.ctx.arc(
+                portal.x * CONFIG.GRID_SIZE + CONFIG.GRID_SIZE / 2,
+                portal.y * CONFIG.GRID_SIZE + CONFIG.GRID_SIZE / 2,
+                CONFIG.GRID_SIZE / 2 - 2,
+                0,
+                2 * Math.PI
+            );
+            this.ctx.fill();
+            
+            // 绘制传送门标识
+            this.ctx.fillStyle = 'white';
+            this.ctx.font = '12px Arial';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText(
+                portal.id,
+                portal.x * CONFIG.GRID_SIZE + CONFIG.GRID_SIZE / 2,
+                portal.y * CONFIG.GRID_SIZE + CONFIG.GRID_SIZE / 2 + 4
+            );
+        });
         
         // 绘制食物
         this.ctx.fillStyle = '#e74c3c';
